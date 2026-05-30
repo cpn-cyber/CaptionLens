@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pkl
+*.pth
+*.pt
+.vscode/
+checkpoints/
+data/raw/
+data/processed/
+runs/
+.idea/
+.DS_Store
+.env
+*.log
+demo_assets/

@@ -1,0 +1,22 @@
+dataset:
+  image_dir: data/raw/train2017_subset
+  captions_path: data/raw/captions_subset.json
+
+processed_data:
+  vocab_path: data/vocab.pkl
+
+model:
+  embed_size: 512
+  decoder_dim: 512
+  attention_dim: 256
+  dropout: 0.1
+  max_len: 50
+
+train:
+  batch_size: 16
+  learning_rate: !!float 1e-4
+  weight_decay: !!float 1e-5
+  num_epochs: 1
+  save_dir: checkpoints/
+  log_interval: 10
+  clip_grad: 1.0
