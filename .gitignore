@@ -8,6 +8,7 @@ checkpoints/
 data/raw/
 data/processed/
 runs/
+evaluation/
 .idea/
 .DS_Store
 .env

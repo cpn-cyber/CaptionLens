@@ -6,6 +6,7 @@ from PIL import Image
 import yaml
 
 from models.image_captioning import ImageCaptioningModel
+from utils.decoding import generate_caption as decode_image
 from utils.tokenizer import Tokenizer
 
 # Load config
@@ -26,7 +27,12 @@ model = ImageCaptioningModel(
     decoder_dim=config['model']['decoder_dim'],
     attention_dim=config['model']['attention_dim'],
     dropout=config['model']['dropout'],
-    max_len=config['model']['max_len']
+    max_len=config['model']['max_len'],
+    use_semantic_slots=config['model'].get('use_semantic_slots', False),
+    num_semantic_slots=config['model'].get('num_semantic_slots', 16),
+    semantic_slot_layers=config['model'].get('semantic_slot_layers', 2),
+    semantic_slot_heads=config['model'].get('semantic_slot_heads', 8),
+    include_visual_tokens=config['model'].get('include_visual_tokens', True),
 )
 model.load_state_dict(torch.load(config['train']['save_dir'] + "best_model.pth", map_location=device))
 model = model.to(device)
@@ -40,27 +46,17 @@ transform = transforms.Compose([
                          [0.229, 0.224, 0.225])
 ])
 
-# Caption generation (Greedy decoding)
-def generate_caption(image_path, max_len=50):
+# Caption generation
+def generate_caption(image_path, max_len=None, strategy="beam"):
     image = Image.open(image_path).convert("RGB")
-    image = transform(image).unsqueeze(0).to(device)  # (1, 3, 224, 224)
-
-    with torch.no_grad():
-        memory = model.encoder(image)  # (1, 196, E)
-
-        caption_idxs = [tokenizer.word2idx["<START>"]]
-
-        for _ in range(max_len):
-            caption_tensor = torch.tensor(caption_idxs, dtype=torch.long).unsqueeze(0).to(device)  # (1, seq_len)
-            tgt_mask = model.generate_square_subsequent_mask(caption_tensor.size(1)).to(device)
-
-            output = model.decoder(caption_tensor, memory, tgt_mask=tgt_mask)
-            next_token = output[:, -1, :].argmax(dim=-1).item()
-
-            caption_idxs.append(next_token)
-
-            if next_token == tokenizer.word2idx["<END>"]:
-                break
-
-    caption = tokenizer.decode(caption_idxs[1:-1])  # Remove <START> and <END>
-    return caption
+    image_tensor = transform(image).unsqueeze(0).to(device)
+    decoding_config = dict(config["decoding"])
+    if max_len is not None:
+        decoding_config["max_len"] = max_len
+    return decode_image(
+        model,
+        image_tensor,
+        tokenizer,
+        strategy=strategy,
+        **decoding_config,
+    )

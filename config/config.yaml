@@ -1,6 +1,12 @@
 dataset:
-  image_dir: data/raw/train2017_subset
-  captions_path: data/raw/captions_subset.json
+  image_dir: data/raw/train2017
+  train_image_dir: data/raw/train2017
+  validation_image_dir: data/raw/val2017
+  captions_path: data/raw/annotations/captions_train2017.json
+  train_captions_path: data/raw/annotations/captions_train2017.json
+  validation_captions_path: data/raw/annotations/captions_val2017.json
+  validation_ratio: 0.05
+  split_seed: 42
 
 processed_data:
   vocab_path: data/vocab.pkl
@@ -11,12 +17,30 @@ model:
   attention_dim: 256
   dropout: 0.1
   max_len: 50
+  use_semantic_slots: true
+  num_semantic_slots: 16
+  semantic_slot_layers: 2
+  semantic_slot_heads: 8
+  include_visual_tokens: true
 
 train:
-  batch_size: 16
+  batch_size: 64
   learning_rate: !!float 1e-4
   weight_decay: !!float 1e-5
-  num_epochs: 1
-  save_dir: checkpoints/
+  num_epochs: 20
+  num_workers: 8
+  save_dir: checkpoints_semantic_slot/
   log_interval: 10
   clip_grad: 1.0
+
+decoding:
+  max_len: 24
+  beam_size: 5
+  length_penalty: 0.7
+  repetition_penalty: 0.8
+  unk_penalty: 4.0
+  no_repeat_ngram_size: 2
+  drop_unk: true
+
+evaluation:
+  output_path: evaluation/semantic_slot_results.json

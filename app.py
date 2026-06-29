@@ -1,3 +1,4 @@
+import json
 import os
 
 import streamlit as st
@@ -9,6 +10,7 @@ import yaml
 import torchvision.transforms as transforms
 
 from models.image_captioning import ImageCaptioningModel
+from utils.decoding import generate_caption as decode_image
 from utils.tokenizer import Tokenizer
 
 
@@ -257,7 +259,12 @@ def load_model():
         decoder_dim=config['model']['decoder_dim'],
         attention_dim=config['model']['attention_dim'],
         dropout=config['model']['dropout'],
-        max_len=config['model']['max_len']
+        max_len=config['model']['max_len'],
+        use_semantic_slots=config['model'].get('use_semantic_slots', False),
+        num_semantic_slots=config['model'].get('num_semantic_slots', 16),
+        semantic_slot_layers=config['model'].get('semantic_slot_layers', 2),
+        semantic_slot_heads=config['model'].get('semantic_slot_heads', 8),
+        include_visual_tokens=config['model'].get('include_visual_tokens', True),
     )
     model.load_state_dict(torch.load(checkpoint_path, map_location=device))
     model.to(device)
@@ -280,11 +287,28 @@ if tokenizer is not None:
 with st.sidebar:
     st.markdown("## CaptionLens")
     st.markdown("**Project:** CaptionLens")
-    st.markdown("**Model:** ResNet50 Encoder + Transformer Decoder")
+    st.markdown("**Model:** ResNet50 + Semantic Slot Adapter + Transformer Decoder")
     st.markdown("**Mechanism:** Self-Attention + Cross-Attention")
-    st.markdown("**Dataset:** MSCOCO Subset")
+    st.markdown("**Dataset:** MSCOCO 2017")
     st.markdown("**Decoding:** Beam Search")
     st.markdown(f"**Device:** `{device.type}`")
+    evaluation_path = config.get("evaluation", {}).get("output_path")
+    if evaluation_path and os.path.exists(evaluation_path):
+        try:
+            with open(evaluation_path, "r", encoding="utf-8") as file:
+                evaluation = json.load(file)
+            beam_metrics = evaluation.get("metrics", {}).get("beam", {})
+            if beam_metrics:
+                st.markdown("---")
+                st.markdown("### Validation Metrics")
+                st.markdown(
+                    f"**BLEU-4:** `{beam_metrics['BLEU-4']:.4f}`"
+                )
+                st.markdown(
+                    f"**CIDEr:** `{beam_metrics['CIDEr']:.4f}`"
+                )
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            pass
 
 
 # Image preprocessing
@@ -298,69 +322,14 @@ transform = transforms.Compose([
 
 def generate_caption(image):
     image_tensor = transform(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        memory = model.encoder(image_tensor)
-        start_idx = tokenizer.word2idx["<START>"]
-        end_idx = tokenizer.word2idx["<END>"]
-        unk_idx = tokenizer.word2idx["<UNK>"]
-        beam_size = 5
-        max_len = min(config['model']['max_len'], 24)
-        length_penalty = 0.7
-
-        beams = [([start_idx], 0.0, False)]
-
-        for _ in range(max_len):
-            candidates = []
-
-            for caption_idxs, score, ended in beams:
-                if ended:
-                    candidates.append((caption_idxs, score, ended))
-                    continue
-
-                caption_tensor = torch.tensor(caption_idxs, dtype=torch.long).unsqueeze(0).to(device)
-                tgt_mask = model.generate_square_subsequent_mask(caption_tensor.size(1)).to(device)
-                output = model.decoder(caption_tensor, memory, tgt_mask=tgt_mask)
-                log_probs = torch.log_softmax(output[:, -1, :], dim=-1).squeeze(0)
-
-                # Keep generated text readable: avoid unknown tokens and repeated phrases.
-                log_probs[unk_idx] -= 4.0
-                for token_idx in set(caption_idxs[1:]):
-                    log_probs[token_idx] -= 0.8
-
-                if len(caption_idxs) >= 2:
-                    existing_bigrams = {
-                        (caption_idxs[i], caption_idxs[i + 1])
-                        for i in range(len(caption_idxs) - 1)
-                    }
-                    prev_token = caption_idxs[-1]
-                    for previous_token, next_token in existing_bigrams:
-                        if prev_token == previous_token:
-                            log_probs[next_token] = -float("inf")
-
-                top_scores, top_indices = torch.topk(log_probs, beam_size)
-                for token_score, token_idx in zip(top_scores.tolist(), top_indices.tolist()):
-                    next_caption = caption_idxs + [token_idx]
-                    candidates.append((
-                        next_caption,
-                        score + token_score,
-                        token_idx == end_idx
-                    ))
-
-            def normalized_score(candidate):
-                caption_idxs, score, _ = candidate
-                return score / (len(caption_idxs) ** length_penalty)
-
-            beams = sorted(candidates, key=normalized_score, reverse=True)[:beam_size]
-            if all(ended for _, _, ended in beams):
-                break
-
-        best_caption = max(beams, key=lambda item: item[1] / (len(item[0]) ** length_penalty))[0]
-        filtered_tokens = [
-            idx for idx in best_caption[1:]
-            if idx not in {tokenizer.word2idx["<PAD>"], start_idx, end_idx, unk_idx}
-        ]
-        caption = tokenizer.decode(filtered_tokens)
-        return caption or "Unable to generate a reliable caption."
+    caption = decode_image(
+        model,
+        image_tensor,
+        tokenizer,
+        strategy="beam",
+        **config["decoding"],
+    )
+    return caption or "Unable to generate a reliable caption."
 
 
 st.markdown(

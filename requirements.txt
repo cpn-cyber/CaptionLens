@@ -5,3 +5,4 @@ numpy
 Pillow
 PyYAML
 streamlit
+pycocoevalcap==1.2

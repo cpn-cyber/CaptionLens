@@ -1,17 +1,33 @@
-# build_vocab.py
-
 import json
+import os
+
+import yaml
+
 from utils.tokenizer import Tokenizer
 
-# Load the 1000-caption subset
-with open("data/raw/captions_subset.json", 'r') as f:
+
+with open("config/config.yaml", "r", encoding="utf-8") as file:
+    config = yaml.safe_load(file)
+
+captions_path = config["dataset"]["train_captions_path"]
+vocab_path = config["processed_data"]["vocab_path"]
+
+if not os.path.exists(captions_path):
+    raise FileNotFoundError(
+        f"Training captions not found: {captions_path}. "
+        "Run prepare_splits.py first."
+    )
+
+with open(captions_path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
 captions = [ann["caption"] for ann in data["annotations"]]
 
-# Build and save vocab
-tokenizer = Tokenizer(freq_threshold=3)  # or 1 if dataset is small
+tokenizer = Tokenizer(freq_threshold=3)
 tokenizer.build_vocab(captions)
-tokenizer.save_vocab("data/vocab.pkl")
+os.makedirs(os.path.dirname(vocab_path), exist_ok=True)
+tokenizer.save_vocab(vocab_path)
 
-print(f"✅ Vocabulary built. Total words: {len(tokenizer.word2idx)}")
+print(f"Vocabulary built from: {captions_path}")
+print(f"Vocabulary saved to: {vocab_path}")
+print(f"Total words: {len(tokenizer.word2idx)}")
